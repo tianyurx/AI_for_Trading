@@ -56,3 +56,8 @@ This is the repo for projects done in Udacity nano-degree course **AI for Tradin
 * Try different weights for each alpha, based on some metric that tells us how confident we are in that alpha, such as a rolling average of the sharpe ratio for each alpha factor.
 * Try different transaction cost models. Read the paper "Crossover from Linear to Square-Root Market Impact”. It has a good overview of the transaction cost models, and it also references other papers that are useful in studying transaction cost models.
 Note about testing previous alphas: To test the alphas that you've created using the QuoteMedia data source, we would need a mapping file that identifies which cusip is associated with which barra ID. We currently aren't able to provide this in the classroom.
+# Owner Earnings Screen
+* A value screen of the 2,000 largest US-listed companies, applying the four-step owner-earnings valuation Buffett used for the Washington Post in 1973.
+* Classifies every company by whether the method applies (financials, REITs, loss-makers, foreign filers and capex-heavy businesses are set aside), values the rest, and ranks them by price against a no-growth value.
+* Data: SEC XBRL filings for fundamentals, the Nasdaq listing for prices and market caps.
+* Code, method notes (in Chinese) and dated results are in `owner_earnings_screen/`.

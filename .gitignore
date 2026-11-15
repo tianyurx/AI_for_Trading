@@ -139,3 +139,5 @@ cython_debug/
 
 # vscode
 .vscode/
+# owner-earnings screen download cache
+owner_earnings_screen/data/

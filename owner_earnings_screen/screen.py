@@ -135,6 +135,12 @@ def company_metrics(g):
     rev = w["rev"].dropna()
     out["rev_cagr"] = ((rev.iloc[-1] / rev.iloc[0]) ** (1 / (len(rev) - 1)) - 1
                        if len(rev) >= 3 and rev.iloc[0] > 0 and rev.iloc[-1] > 0 else math.nan)
+    # is the business still growing? latest revenue against three fiscal years
+    # earlier, and latest earnings against their own three-year average
+    earlier = g.loc[g["cy"] == last_cy - 3, "rev"]
+    out["rev_growth_3y"] = (_div(g["rev"].iloc[-1], earlier.iloc[0]) - 1
+                            if len(earlier) and earlier.iloc[0] > 0 else math.nan)
+    out["ni_latest_ratio"] = _div(g["ni_adj"].iloc[-1], out["ni"]) if out["ni"] > 0 else math.nan
     n3 = min(3, len(w) // 2)
     out["ni_grew"] = bool(n3 and w["ni"].iloc[-n3:].mean() > w["ni"].iloc[:n3].mean())
     interest = c["interest"].mean()
@@ -301,6 +307,17 @@ def passes_quality(df):
     full_record = df["ni_pos_years"] >= np.minimum(df["n_years"], 8)
     return (is_clean(df) & (df["n_years"] >= 7) & full_record
             & (df["fcf_conv"] >= 0.5) & ~(df["int_cover"] < 3))
+
+
+def is_good(df):
+    """A durable business that is not shrinking: where to look for undervaluation.
+
+    Most cheap stocks are cheap because revenue or profit is falling. Starting
+    from quality and then asking for a low price avoids ranking those first.
+    """
+    durable = _flag(df, "franchise") | _flag(df, "sees_like")
+    return (passes_quality(df) & durable & (df["rev_growth_3y"] >= 0)
+            & (df["ni_latest_ratio"] >= 0.85))
 
 
 def _flag(df, col):

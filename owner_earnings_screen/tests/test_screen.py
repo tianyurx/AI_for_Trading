@@ -78,6 +78,31 @@ class CompanyMetrics(unittest.TestCase):
         self.assertAlmostEqual(m["margin_ratio"], 0.5)   # 13% / 39%, clipped
 
 
+class Trend(unittest.TestCase):
+    def test_steady_business_is_flat(self):
+        m = S.company_metrics(history())
+        self.assertAlmostEqual(m["rev_growth_3y"], 0.0)
+        self.assertAlmostEqual(m["ni_latest_ratio"], 1.0)
+
+    def test_shrinking_business(self):
+        rev = [1000.0] * 7 + [900.0, 800.0, 700.0]
+        ni = [100.0] * 7 + [90.0, 60.0, 30.0]
+        m = S.company_metrics(history(rev=rev, ni=ni))
+        self.assertAlmostEqual(m["rev_growth_3y"], -0.3)
+        self.assertAlmostEqual(m["ni_latest_ratio"], 0.5)      # 30 against an average of 60
+
+    def test_good_means_durable_and_not_shrinking(self):
+        base = dict(bucket="valued", share_mismatch=False, suspect=False, n_years=10,
+                    ni_pos_years=10, fcf_conv=1.0, int_cover=10.0, franchise=True,
+                    sees_like=False, rev_growth_3y=0.1, ni_latest_ratio=1.0)
+        df = pd.DataFrame([base,
+                           {**base, "rev_growth_3y": -0.1},        # revenue shrinking
+                           {**base, "ni_latest_ratio": 0.5},       # profit falling
+                           {**base, "franchise": False},           # not a durable business
+                           {**base, "int_cover": 2.0}])            # fails the quality gate
+        self.assertEqual(list(S.is_good(df)), [True, False, False, False, False])
+
+
 class Classify(unittest.TestCase):
     ROW = {"cik": 1, "country": "United States", "industry": "Specialty Insurers"}
 

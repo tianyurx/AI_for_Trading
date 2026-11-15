@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 from . import config as C
-from .screen import is_clean, passes_quality
+from .screen import is_clean, is_good, passes_quality
 
 BUCKETS = [
     ("valued", "可直接估值", "四步法适用，已算出估值区间"),
@@ -54,6 +54,8 @@ def _flags(r):
     if r.get("cyclical") is True: f.append("周期")
     if r.get("margin_ratio", np.nan) >= 1.15: f.append("利润率低于常态")
     if r.get("margin_ratio", np.nan) <= 0.85: f.append("利润率高于常态")
+    if r.get("rev_growth_3y", np.nan) < 0: f.append("收入萎缩")
+    if r.get("ni_latest_ratio", np.nan) < 0.85: f.append("利润下滑")
     if r.get("rnd_to_rev", np.nan) >= 0.15: f.append("高研发")
     if r.get("one_off") is True: f.append("已剔除一次性收益")
     if r.get("foreign") is True: f.append("外国公司")
@@ -151,7 +153,26 @@ def render(df, rate, asof, whole_market=False):
         w(f"\n中位数为 {pv.median():.2f}：典型公司的价格是零增长价值的 {pv.median():.1f} 倍，"
           f"即市场要求其股东盈余永续增长约 {val['implied_g'].median() * 100:.1f}% 才撑得住现价。\n")
 
-    w("## 三、候选名单：价格低于保守价值\n")
+    w("## 三、被低估的好公司\n")
+    w("先定“好”，再看“便宜”，最后排除正在萎缩的。顺序反过来（先找便宜的）会把衰退中的生意排在最前面。\n")
+    cheap = good[good["pv_low"] <= 1]
+    shrinking = (cheap["rev_growth_3y"] < 0) | (cheap["ni_latest_ratio"] < 0.85)
+    durable = good[(good["franchise"] == True) | (good["sees_like"] == True)]  # noqa: E712
+    best = df[is_good(df) & (df["pv_low"] <= 1)].sort_values("pv_low")
+    w("| 漏斗 | 公司数 |\n| --- | ---: |")
+    w(f"| 可估值 | {len(val)} |")
+    w(f"| 通过质量门槛 | {len(good)} |")
+    w(f"| 其中属于好生意（“特许”或“喜诗式”） | {len(durable)} |")
+    w(f"| 其中价格低于保守价值 | {int((durable['pv_low'] <= 1).sum())} |")
+    w(f"| 其中收入不低于三年前、最新利润不低于三年均值的 85% | {len(best)} |")
+    w(f"\n好生意的价格/保守价值中位数是 {durable['pv_low'].median():.2f}，多数并不便宜。"
+      f"反过来，{len(cheap)} 只便宜的候选里有 {int(shrinking.sum())} 只收入或利润在萎缩。\n")
+    w(_table(best, VALUE_COLS + [
+        ("收入三年变化", lambda r: _pct(r["rev_growth_3y"], 0)),
+        ("最新利润/三年均值", lambda r: _x(r["ni_latest_ratio"]))]))
+    w("\n数字只能做到这一步。名单里每一只还要回答：为什么便宜，这个原因是暂时的还是永久的。\n")
+
+    w("## 四、全部便宜的候选：价格低于保守价值\n")
     w("条件：价格/保守价值 ≤ 1，且通过质量门槛（至少 7 年记录、十年中至少 8 年盈利、"
       "十年自由现金流/净利润 ≥ 0.5、利息保障倍数不低于 3）。按折扣从深到浅排序。\n")
     cand = good[good["pv_low"] <= 1].sort_values("pv_low")
@@ -169,7 +190,7 @@ def render(df, rate, asof, whole_market=False):
         w(_table(cand.head(40), VALUE_COLS))
     w("")
 
-    w("## 四、“邮报式”：利润率暂时低于常态的好生意\n")
+    w("## 五、“邮报式”：利润率暂时低于常态的好生意\n")
     w("条件：通过质量门槛，近三年利润率比自身十年中位数低 15% 以上，"
       "且修复后的价格/乐观价值 ≤ 1。利润率能否修复无法从数字判断，这是需要逐只研究的部分。\n")
     rep = good[(good["margin_ratio"] >= 1.15) & (good["pv_high"] <= 1)].sort_values("pv_high")
@@ -177,7 +198,7 @@ def render(df, rate, asof, whole_market=False):
         ("利润率 现在/常态", lambda r: f"{_pct(r['margin_now'])} / {_pct(r['margin_norm'])}")]))
     w("")
 
-    w("## 五、“喜诗式”：高回报、低资本需求、利润大部分分掉\n")
+    w("## 六、“喜诗式”：高回报、低资本需求、利润大部分分掉\n")
     w("条件：十年 ROE 中位数 ≥ 20%、年年盈利、资本开支 ≤ 净利润的 40%、"
       "分红加回购 ≥ 净利润的 70%、利润仍在增长。这类公司很少便宜，按价格/保守价值排序：\n")
     sees = df[is_clean(df) & (df["sees_like"] == True)].sort_values("pv_low")  # noqa: E712
@@ -185,7 +206,7 @@ def render(df, rate, asof, whole_market=False):
     w(_table(sees.head(25), VALUE_COLS))
     w("")
 
-    w("## 六、反面教材\n")
+    w("## 七、反面教材\n")
     w("### 低市盈率陷阱：账面盈利，但股东盈余为负\n")
     trap = df[df["bucket"] == "cash_burn"].sort_values("earn_yield", ascending=False)
     w(_table(trap.head(15), [

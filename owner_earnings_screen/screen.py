@@ -174,7 +174,10 @@ def _name_key(name):
 
 
 def build_universe(pan, subs, size=C.UNIVERSE_SIZE):
-    """Top `size` US-listed companies by market cap, one row per company."""
+    """US-listed companies by market cap, one row per company.
+
+    `size` keeps the largest that many; 0 or None keeps every listed company.
+    """
     u = universe.load()
     recent = pan[pan["cy"] >= 2024].groupby("cik")["assets"].max()
     t2c = {}
@@ -207,7 +210,8 @@ def build_universe(pan, subs, size=C.UNIVERSE_SIZE):
     # one row per company: share classes collapse onto the largest listing
     key = u["cik"].astype("string").fillna("T:" + u["ticker"])
     u["tickers"] = u.groupby(key)["ticker"].transform(lambda s: " ".join(s))
-    u = u[~key.duplicated()].head(size).reset_index(drop=True)
+    u = u[~key.duplicated()]
+    u = (u.head(size) if size else u).reset_index(drop=True)
     u.insert(0, "rank", u.index + 1)
     return u
 
@@ -269,7 +273,8 @@ def run(rate=C.RISK_FREE, size=C.UNIVERSE_SIZE):
             rec["share_mismatch"] = bool(not rec["foreign"] and rec["mc_check"] < 20
                                          and not 0.7 <= rec["mc_check"] <= 1.4)
             rec["earn_yield"] = m["ni"] / mc
-            rec["suspect"] = bool(rec["earn_yield"] > 0.5)      # a P/E under 2 is a data error
+            # a P/E under 2, or profit above revenue, is a data error until shown otherwise
+            rec["suspect"] = bool(rec["earn_yield"] > 0.5 or m["ni"] > m["rev"])
             rec["oe_yield"] = _div(m["oe"], mc)
             rec["fcf_yield"] = _div(m["fcf_ex_sbc"], mc)
             rec["pb"] = _div(mc, m["equity"]) if m["equity"] > 0 else math.nan

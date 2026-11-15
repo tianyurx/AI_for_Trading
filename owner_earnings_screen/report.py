@@ -21,7 +21,15 @@ BUCKETS = [
 
 
 def _bn(x):
-    return "" if pd.isna(x) else f"{x / 1e9:,.1f}"
+    if pd.isna(x):
+        return ""
+    return f"{x / 1e9:,.1f}" if abs(x) >= 1e9 else f"{x / 1e9:.2f}"
+
+
+def _mn(x):
+    if pd.isna(x):
+        return ""
+    return f"{x / 1e6:,.1f}" if x >= 5e4 else "<0.1"
 
 
 def _pct(x, d=1):
@@ -71,6 +79,7 @@ VALUE_COLS = [
     ("代码", lambda r: r["ticker"]),
     ("公司", lambda r: _name(r["name"])),
     ("市值(十亿$)", lambda r: _bn(r["mktcap"])),
+    ("日成交额(百万$)", lambda r: _mn(r["dollar_volume"])),
     ("股东盈余收益率", lambda r: _pct(r["oe_yield"])),
     ("价格/保守价值", lambda r: _x(r["pv_low"])),
     ("价格/乐观价值", lambda r: _x(r["pv_high"])),
@@ -80,25 +89,43 @@ VALUE_COLS = [
 ]
 
 
-def render(df, rate, asof):
+TOP = C.UNIVERSE_SIZE
+
+
+def render(df, rate, asof, whole_market=False):
     n = len(df)
     val = df[df["bucket"] == "valued"]
     good = df[passes_quality(df)]
+    big, small = df["rank"] <= TOP, df["rank"] > TOP
     L = []
     w = L.append
 
-    w(f"# 股东盈余筛选：美股市值前 {n} 名\n")
+    w(f"# 股东盈余筛选：全部美股（{n} 家）\n" if whole_market
+      else f"# 股东盈余筛选：美股市值前 {n} 名\n")
     w(f"- 股价与市值：{asof} 收盘（Nasdaq 上市清单）")
     w(f"- 财报：SEC XBRL 年报数据，每家公司取最近一个完整财年及此前最多 {C.HIST_YEARS} 年")
     w(f"- 折现率：10 年期美债收益率 {rate * 100:.2f}%（{C.RISK_FREE_ASOF}），对应零增长估值倍数 {1 / rate:.1f} 倍")
+    if whole_market:
+        w(f"- 市值排名第 {TOP} 名约为 {df.loc[df['rank'] == TOP, 'mktcap'].iloc[0] / 1e8:,.0f} 亿美元，"
+          f"中位数公司约为 {df['mktcap'].median() / 1e8:,.0f} 亿美元。"
+          "小公司成交稀薄、财报错误更多；名单里的日成交额是清单当日的数字，仅供粗看。")
     w("- 这是筛选结果，不是买卖建议；名单里的每一只都需要再做人工判断。\n")
 
     w("## 一、框架能覆盖多少\n")
-    w("| 类别 | 数量 | 占比 | 说明 |\n| --- | ---: | ---: | --- |")
     counts = df["bucket"].value_counts()
-    for key, label, note in BUCKETS:
-        if counts.get(key, 0):
-            w(f"| {label} | {counts[key]} | {counts[key] / n * 100:.1f}% | {note} |")
+    if whole_market:
+        cb, cs = df.loc[big, "bucket"].value_counts(), df.loc[small, "bucket"].value_counts()
+        w(f"| 类别 | 前 {TOP} 名 | {TOP} 名以后 | 合计 | 占比 | 说明 |\n"
+          "| --- | ---: | ---: | ---: | ---: | --- |")
+        for key, label, note in BUCKETS:
+            if counts.get(key, 0):
+                w(f"| {label} | {cb.get(key, 0)} | {cs.get(key, 0)} | {counts[key]} "
+                  f"| {counts[key] / n * 100:.1f}% | {note} |")
+    else:
+        w("| 类别 | 数量 | 占比 | 说明 |\n| --- | ---: | ---: | --- |")
+        for key, label, note in BUCKETS:
+            if counts.get(key, 0):
+                w(f"| {label} | {counts[key]} | {counts[key] / n * 100:.1f}% | {note} |")
     w("")
 
     w("## 二、可估值公司的价格水平\n")
@@ -108,18 +135,38 @@ def render(df, rate, asof):
     pv = val["pv_low"]
     bands = [("≤ 0.5（五折以下）", pv <= 0.5), ("0.5 – 1.0", (pv > 0.5) & (pv <= 1)),
              ("1.0 – 2.0", (pv > 1) & (pv <= 2)), ("> 2.0", pv > 2)]
-    w("| 价格 / 保守价值 | 公司数 | 占可估值公司 |\n| --- | ---: | ---: |")
-    for label, mask in bands:
-        w(f"| {label} | {int(mask.sum())} | {mask.mean() * 100:.1f}% |")
-    w(f"\n中位数为 {pv.median():.2f}：典型公司的价格是零增长价值的 {pv.median():.1f} 倍，"
-      f"即市场要求其股东盈余永续增长约 {val['implied_g'].median() * 100:.1f}% 才撑得住现价。\n")
+    if whole_market:
+        vb, vs = (val["rank"] <= TOP), (val["rank"] > TOP)
+        w(f"| 价格 / 保守价值 | 前 {TOP} 名 | {TOP} 名以后 | 合计 | 占可估值公司 |\n"
+          "| --- | ---: | ---: | ---: | ---: |")
+        for label, mask in bands:
+            w(f"| {label} | {int((mask & vb).sum())} | {int((mask & vs).sum())} "
+              f"| {int(mask.sum())} | {mask.mean() * 100:.1f}% |")
+        w(f"\n价格/保守价值的中位数：前 {TOP} 名 {pv[vb].median():.2f}，"
+          f"{TOP} 名以后 {pv[vs].median():.2f}。\n")
+    else:
+        w("| 价格 / 保守价值 | 公司数 | 占可估值公司 |\n| --- | ---: | ---: |")
+        for label, mask in bands:
+            w(f"| {label} | {int(mask.sum())} | {mask.mean() * 100:.1f}% |")
+        w(f"\n中位数为 {pv.median():.2f}：典型公司的价格是零增长价值的 {pv.median():.1f} 倍，"
+          f"即市场要求其股东盈余永续增长约 {val['implied_g'].median() * 100:.1f}% 才撑得住现价。\n")
 
     w("## 三、候选名单：价格低于保守价值\n")
     w("条件：价格/保守价值 ≤ 1，且通过质量门槛（至少 7 年记录、十年中至少 8 年盈利、"
       "十年自由现金流/净利润 ≥ 0.5、利息保障倍数不低于 3）。按折扣从深到浅排序。\n")
     cand = good[good["pv_low"] <= 1].sort_values("pv_low")
-    w(f"共 {len(cand)} 只，列出前 {min(len(cand), 40)} 只：\n")
-    w(_table(cand.head(40), VALUE_COLS))
+    if whole_market:
+        cb, cs = cand[cand["rank"] <= TOP], cand[cand["rank"] > TOP]
+        w(f"共 {len(cand)} 只：前 {TOP} 名里 {len(cb)} 只，{TOP} 名以后 {len(cs)} 只。"
+          f"后者当中 {int((cs['dollar_volume'] < 1e6).sum())} 只当日成交额不足 100 万美元，"
+          f"{int((cs['foreign'] == True).sum())} 只是外国公司。\n")  # noqa: E712
+        w(f"### 市值排名 {TOP} 名以后（列出前 {min(len(cs), 50)} 只）\n")
+        w(_table(cs.head(50), VALUE_COLS))
+        w(f"\n### 市值前 {TOP} 名（列出前 {min(len(cb), 40)} 只）\n")
+        w(_table(cb.head(40), VALUE_COLS))
+    else:
+        w(f"共 {len(cand)} 只，列出前 {min(len(cand), 40)} 只：\n")
+        w(_table(cand.head(40), VALUE_COLS))
     w("")
 
     w("## 四、“邮报式”：利润率暂时低于常态的好生意\n")

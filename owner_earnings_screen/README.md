@@ -10,12 +10,14 @@
 
 ```bash
 python -m owner_earnings_screen fetch                 # 下载并缓存数据（约 20 分钟，主要是代码对照表）
-python -m owner_earnings_screen screen --rate 0.05103 --asof 2026-11-12
+python -m owner_earnings_screen screen --rate 0.05103 --asof 2026-11-12            # 市值前 2000 名
+python -m owner_earnings_screen screen --size 0 --rate 0.05103 --asof 2026-11-12   # 全部上市公司
 python -m unittest discover -s owner_earnings_screen/tests -t .
 ```
 
-依赖只有 `pandas` 和 `requests`。输出在 `results/<日期>/`：`screen.csv`（全部 2000 行、
-全部指标）和 `report.md`（汇总与名单）。下载缓存在 `data/`，不入库。
+依赖只有 `pandas` 和 `requests`。输出在 `results/<日期>/`：`screen.csv`（每家公司一行、
+全部指标）和 `report.md`（汇总与名单）；全市场版本的文件名带 `_all` 后缀。
+下载缓存在 `data/`，不入库。
 
 `--rate` 是 10 年期美债收益率，需要手工给（默认值写在 `config.py` 里并标了日期）。
 
@@ -78,7 +80,7 @@ python -m unittest discover -s owner_earnings_screen/tests -t .
   自由现金流/净利润 ≥ 0.5，利息保障倍数不低于 3，且没有下面两个存疑标记。
 - **股本变动**（`share_mismatch`）：清单市值与“股价 × 年报股数”相差超过 0.7–1.4 倍，
   说明年报之后发生过并购、分拆或拆股，历史利润可能对不上现在的公司。
-- **存疑**（`suspect`）：市盈率低于 2，按数据错误处理。
+- **存疑**（`suspect`）：市盈率低于 2，或净利润高于收入，按数据错误处理。
 
 ## 数据清洗
 

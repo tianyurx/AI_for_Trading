@@ -40,7 +40,10 @@ def load():
     df["price"] = pd.to_numeric(df["lastsale"].str.replace(r"[$,]", "", regex=True),
                                 errors="coerce")
     df["mktcap"] = pd.to_numeric(df["marketCap"], errors="coerce")
+    # one day's turnover in dollars: a rough guide to how tradable the stock is
+    df["dollar_volume"] = pd.to_numeric(df["volume"], errors="coerce") * df["price"]
     df = df[~df["name"].str.contains(_NOT_COMMON) & ~df["symbol"].str.contains(r"\^")]
     df = df[df["price"] > 0]
-    cols = ["ticker", "name", "price", "mktcap", "country", "sector", "industry"]
+    cols = ["ticker", "name", "price", "mktcap", "dollar_volume", "country", "sector",
+            "industry"]
     return df[cols].drop_duplicates("ticker").reset_index(drop=True)
